@@ -6,7 +6,6 @@ import cv2
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 import json
-import paho.mqtt.client as mqtt
 import logging
 import numpy as np
  
@@ -52,59 +51,13 @@ def read_ocr_field():
         return None
     return ocr_field
 
-reconnect_count = 0
-def connect_mqtt():
-    '''发送MQTT消息的函数'''
-    def on_connect(client, userdata, flags, rc):
-        '''连接成功回调函数'''
-        print("Connected with result code "+str(rc))
-    def on_publish(client, userdata, result):
-        '''消息发布成功回调函数'''
-        print("Data published successfully")
-        
-    def on_disconnect(client, userdata, rc=0):
-        global reconnect_count 
-        reconnect_count = reconnect_count + 1
-        print("Disconnected with result code "+str(rc))
-        print("Reconnecting ", reconnect_count)
-        # 等待3秒后重连
-        time.sleep(3)
-        client.connect("127.0.0.1", 1883)
-
-    global logger
-    client = mqtt.Client(client_id="ai202305061517")
-    client.username_pw_set(username="ts", password="123")
-    client.on_connect = on_connect
-    client.on_publish = on_publish
-    # 绑定断开连接回调  
-    client.on_disconnect = on_disconnect  
-    while True:
-        try:
-            client.connect("127.0.0.1", 1883, 60)
-            return client
-        except:
-            # 如果连接mqtt失败，则在/data/ai/ai.log日志文件中加入报错信息
-            logger.error("Unable to establish MQTT connection, reconnect after 3s...")
-        time.sleep(3)
-
-mqtt_client = connect_mqtt()
-
-def send_mqtt_msg(data):
-    global mqtt_client
-    msg_topic = "/sys/ts/messagebus/20230506151602"
-    msg_content = {
-            "appType": "20230506151602",
-            "cmdType": "1001",
-            "data": data
-    }
-    
-    mqtt_client.publish(msg_topic, json.dumps(msg_content))
-
-
 class Watcher:
-    def __init__(self, directory):
+    def __init__(self, message_queue):
+        global watch_path
+        # 发送消息的队列
+        self.message_queue = message_queue
         # 需要监控的文件夹路径
-        self.directory = directory
+        self.directory = watch_path
         self.observer = Observer()  #创建Observer对象
         # 模型路径
         self.model_dirname = '/usr/lib/pdm'
@@ -116,7 +69,7 @@ class Watcher:
         self.model = fd.vision.ocr.PPOCRv3(det_model=self.model_det, rec_model=self.model_rec)
  
     def run(self):
-        event_handler = Handler(model=self.model)
+        event_handler = Handler(model=self.model, message_queue=self.message_queue)
         #将Observer与目录、事件处理器关联起来并启动观察
         self.observer.schedule(event_handler, self.directory, recursive=True)
         self.observer.start()  #启动Observer
@@ -132,8 +85,10 @@ class Watcher:
  
 class Handler(FileSystemEventHandler):
     '''初始化OCR结果监听器（监控文件夹，并识别新生成的OCR图片）'''
-    def __init__(self, model):
+    def __init__(self, model, message_queue):
         super().__init__()
+        # 发送消息的队列
+        self.message_queue = message_queue
         self.ocr_object_list = read_ocr_field()
         self.model = model
         
@@ -152,10 +107,10 @@ class Handler(FileSystemEventHandler):
                     ts_str = img_name.split('-')[2].split('.')[0]
                     unix_ts = int(ts_str) / 1000.0 # convert milliseconds to seconds
                 except Exception as e:
-                    logger.error("OCR config json device_id error! Exit prograss!")
+                    logger.error("OCR config json device_id error! Check out /data/ai/ocr pic and device_id!")
                     os.remove(event.src_path)
                     return None
-                print(f"{event.src_path} 已创建")
+                # print(f"{event.src_path} 已创建")
                 time.sleep(0.3)
                 img = cv2.imread(event.src_path)
                 if img is None:
@@ -200,9 +155,10 @@ class Handler(FileSystemEventHandler):
                             "start_time": int(unix_ts),
                             "text": result_list
                         }
-                print(data)
+                        
                 if len(result_list) > 0:
-                    send_mqtt_msg(data)
+                    # 1 是语音消息 2是ocr消息
+                    self.message_queue.put((2, data))
                 
                 os.remove(event.src_path)
 
@@ -216,10 +172,9 @@ def delete_files_in_directory(directory):
     for f in filelist:
         os.remove(os.path.join(directory, f))
 
-def ocr_rec():
-    global watch_path
+def ocr_rec(message_queue):
     delete_files_in_directory(watch_path)
-    watcher = Watcher(watch_path) # create a Watcher object to monitor the directory "/data/ocr/"
+    watcher = Watcher(message_queue) # create a Watcher object to monitor the directory "/data/ocr/"
     watcher.run() # start monitoring the directory
 
 if __name__ == "__main__":
