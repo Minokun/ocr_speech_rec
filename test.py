@@ -7,3 +7,4 @@ import time
 while True:
     shutil.copy(src_pic_path, dist_pic_path)
     time.sleep(2)
+# 求和函数

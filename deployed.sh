@@ -7,6 +7,7 @@ cp speech_rec.py build/
 cp send_mqtt.py build/
 cp build.sh build/
 cp speech_command_dict.json build/
+cp start_test.wav build/
 
 cd build/
 

@@ -19,7 +19,8 @@ def connect_mqtt():
         print("Connected with result code "+str(rc))
     def on_publish(client, userdata, result):
         '''消息发布成功回调函数'''
-        print("Data published successfully")
+        # print("Data published successfully")
+        pass
         
     def on_disconnect(client, userdata, rc=0):
         global reconnect_count, message_cache

@@ -5,6 +5,25 @@ import ocr
 import speech_rec
 import send_mqtt
 import queue
+import os
+import shutil
+
+def ota():
+    otg_dir = '/data/ai/otg'
+    # 检查ota目录是否存在
+    if os.path.exists(otg_dir):
+        # 列出ota目录下所有文件
+        files = os.listdir(otg_dir)
+
+        # 遍历文件并复制到当前目录,覆盖存在的文件
+        for file in files:
+            file_path = os.path.join(otg_dir, file)
+            os.remove(file)
+            shutil.copy(file_path, os.curdir)
+            print(f"upload {file_path} ...")
+        print('OTG update success!')
+    else:
+        print('OTG directory is not exist!')
 
 def start_threads():
     message_queue = queue.Queue()
@@ -42,4 +61,5 @@ def start_threads():
         time.sleep(3)
 
 if __name__ == "__main__":
+    ota()
     start_threads()
